@@ -555,6 +555,9 @@ static grpc_error_handle init_data_frame_parser(grpc_chttp2_transport* t) {
   }
   s->received_bytes += t->incoming_frame_size;
   s->stats.incoming.framing_bytes += 9;
+  if (s->call_tracer != nullptr) {
+    s->call_tracer->RecordIncomingBytes({9, 0, 0});
+  }
   if (s->read_closed) {
     return init_non_header_skip_frame_parser(t);
   }
@@ -571,9 +574,8 @@ error_handler:
     // handle stream errors by closing the stream
     grpc_chttp2_mark_stream_closed(t, s, true, false,
                                    absl_status_to_grpc_error(status));
-    grpc_chttp2_add_rst_stream_to_next_write(t, t->incoming_stream_id,
-                                             GRPC_HTTP2_PROTOCOL_ERROR,
-                                             &s->stats.outgoing);
+    grpc_chttp2_add_rst_stream_to_next_write(t, s, t->incoming_stream_id,
+                                             GRPC_HTTP2_PROTOCOL_ERROR);
     return init_non_header_skip_frame_parser(t);
   } else {
     return absl_status_to_grpc_error(status);
@@ -729,6 +731,9 @@ static grpc_error_handle init_header_frame_parser(grpc_chttp2_transport* t,
   }
   DCHECK_NE(s, nullptr);
   s->stats.incoming.framing_bytes += 9;
+  if (s->call_tracer != nullptr) {
+    s->call_tracer->RecordIncomingBytes({9, 0, 0});
+  }
   if (GPR_UNLIKELY(s->read_closed)) {
     GRPC_CHTTP2_IF_TRACING(gpr_log(
         GPR_ERROR, "skipping already closed grpc_chttp2_stream header"));
@@ -800,6 +805,9 @@ static grpc_error_handle init_window_update_frame_parser(
       return init_non_header_skip_frame_parser(t);
     }
     s->stats.incoming.framing_bytes += 9;
+    if (s->call_tracer != nullptr) {
+      s->call_tracer->RecordIncomingBytes({9, 0, 0});
+    }
   }
   t->parser = grpc_chttp2_transport::Parser{
       "window_update", grpc_chttp2_window_update_parser_parse,
@@ -826,6 +834,9 @@ static grpc_error_handle init_rst_stream_parser(grpc_chttp2_transport* t) {
     return init_non_header_skip_frame_parser(t);
   }
   s->stats.incoming.framing_bytes += 9;
+  if (s->call_tracer != nullptr) {
+    s->call_tracer->RecordIncomingBytes({9, 0, 0});
+  }
   t->parser = grpc_chttp2_transport::Parser{
       "rst_stream", grpc_chttp2_rst_stream_parser_parse, &t->simple.rst_stream};
   if (!t->is_client && grpc_core::IsRstpitEnabled()) {
@@ -920,8 +931,7 @@ static void force_client_rst_stream(void* sp, grpc_error_handle /*error*/) {
   grpc_chttp2_stream* s = static_cast<grpc_chttp2_stream*>(sp);
   grpc_chttp2_transport* t = s->t.get();
   if (!s->write_closed) {
-    grpc_chttp2_add_rst_stream_to_next_write(t, s->id, GRPC_HTTP2_NO_ERROR,
-                                             &s->stats.outgoing);
+    grpc_chttp2_add_rst_stream_to_next_write(t, s, s->id, GRPC_HTTP2_NO_ERROR);
     grpc_chttp2_initiate_write(t, GRPC_CHTTP2_INITIATE_WRITE_FORCE_RST_STREAM);
     grpc_chttp2_mark_stream_closed(t, s, true, true, absl::OkStatus());
   }
@@ -937,8 +947,10 @@ grpc_error_handle grpc_chttp2_header_parser_parse(void* hpack_parser,
   grpc_core::CallTracerAnnotationInterface* call_tracer = nullptr;
   if (s != nullptr) {
     s->stats.incoming.header_bytes += GRPC_SLICE_LENGTH(slice);
-    call_tracer =
-        s->arena->GetContext<grpc_core::CallTracerAnnotationInterface>();
+    if (s->call_tracer != nullptr) {
+      s->call_tracer->RecordIncomingBytes({0, 0, GRPC_SLICE_LENGTH(slice)});
+    }
+    call_tracer = s->call_tracer;
   }
   grpc_error_handle error = parser->Parse(
       slice, is_last != 0, absl::BitGenRef(t->bitgen), call_tracer);

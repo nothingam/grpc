@@ -412,8 +412,7 @@ class DataSendContext {
                      s_->send_trailing_metadata != nullptr &&
                      s_->send_trailing_metadata->empty();
     grpc_chttp2_encode_data(s_->id, &s_->flow_controlled_buffer, send_bytes,
-                            is_last_frame_, &s_->stats.outgoing,
-                            t_->outbuf.c_slice_buffer());
+                            is_last_frame_, s_, t_->outbuf.c_slice_buffer());
     sfc_upd_.SentData(send_bytes);
     s_->sending_bytes += send_bytes;
   }
@@ -484,7 +483,7 @@ class StreamWriteContext {
     grpc_chttp2_complete_closure_step(t_, &s_->send_initial_metadata_finished,
                                       absl::OkStatus(),
                                       "send_initial_metadata_finished");
-    if (s_->call_tracer) {
+    if (s_->ShouldRecordAnnotations()) {
       grpc_core::HttpAnnotation::WriteStats write_stats;
       write_stats.target_write_size = write_context_->target_write_size();
       s_->call_tracer->RecordAnnotation(
@@ -558,8 +557,8 @@ class StreamWriteContext {
 
     GRPC_CHTTP2_IF_TRACING(gpr_log(GPR_INFO, "sending trailing_metadata"));
     if (s_->send_trailing_metadata->empty()) {
-      grpc_chttp2_encode_data(s_->id, &s_->flow_controlled_buffer, 0, true,
-                              &s_->stats.outgoing, t_->outbuf.c_slice_buffer());
+      grpc_chttp2_encode_data(s_->id, &s_->flow_controlled_buffer, 0, true, s_,
+                              t_->outbuf.c_slice_buffer());
     } else {
       t_->hpack_compressor.EncodeHeaders(
           grpc_core::HPackCompressor::EncodeHeaderOptions{
@@ -625,14 +624,18 @@ class StreamWriteContext {
     s_->eos_sent = true;
 
     if (!t_->is_client && !s_->read_closed) {
-      grpc_slice_buffer_add(
-          t_->outbuf.c_slice_buffer(),
-          grpc_chttp2_rst_stream_create(s_->id, GRPC_HTTP2_NO_ERROR,
-                                        &s_->stats.outgoing));
+      size_t frame_size = 0;
+      grpc_slice_buffer_add(t_->outbuf.c_slice_buffer(),
+                            grpc_chttp2_rst_stream_create(
+                                s_->id, GRPC_HTTP2_NO_ERROR, &frame_size));
+      s_->stats.outgoing.framing_bytes += frame_size;
+      if (s_->call_tracer != nullptr) {
+        s_->call_tracer->RecordOutgoingBytes({frame_size, 0, 0});
+      }
     }
     grpc_chttp2_mark_stream_closed(t_, s_, !t_->is_client, true,
                                    absl::OkStatus());
-    if (s_->call_tracer) {
+    if (s_->ShouldRecordAnnotations()) {
       s_->call_tracer->RecordAnnotation(
           grpc_core::HttpAnnotation(grpc_core::HttpAnnotation::Type::kEnd,
                                     gpr_now(GPR_CLOCK_REALTIME))

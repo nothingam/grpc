@@ -55,8 +55,7 @@ absl::Status grpc_chttp2_data_parser_begin_frame(uint8_t flags,
 
 void grpc_chttp2_encode_data(uint32_t id, grpc_slice_buffer* inbuf,
                              uint32_t write_bytes, int is_eof,
-                             grpc_transport_one_way_stats* stats,
-                             grpc_slice_buffer* outbuf) {
+                             grpc_chttp2_stream* s, grpc_slice_buffer* outbuf) {
   grpc_slice hdr;
   uint8_t* p;
   static const size_t header_size = 9;
@@ -77,9 +76,15 @@ void grpc_chttp2_encode_data(uint32_t id, grpc_slice_buffer* inbuf,
 
   grpc_slice_buffer_move_first_no_ref(inbuf, write_bytes, outbuf);
 
-  stats->framing_bytes += header_size;
+  s->stats.outgoing.framing_bytes += header_size;
+  if (s->call_tracer != nullptr) {
+    s->call_tracer->RecordOutgoingBytes({header_size, 0, 0});
+  }
   if (!grpc_core::IsHttp2StatsFixEnabled()) {
-    stats->data_bytes += write_bytes;
+    s->stats.outgoing.data_bytes += write_bytes;
+    if (s->call_tracer != nullptr) {
+      s->call_tracer->RecordOutgoingBytes({0, write_bytes, 0});
+    }
   }
 }
 
@@ -131,6 +136,9 @@ grpc_core::Poll<grpc_error_handle> grpc_deframe_unprocessed_incoming_frames(
   if (stream_out != nullptr) {
     s->stats.incoming.framing_bytes += 5;
     s->stats.incoming.data_bytes += length;
+    if (s->call_tracer != nullptr) {
+      s->call_tracer->RecordIncomingBytes({5, length, 0});
+    }
     grpc_slice_buffer_move_first_into_buffer(slices, 5, header);
     grpc_slice_buffer_move_first(slices, length, stream_out->c_slice_buffer());
   }

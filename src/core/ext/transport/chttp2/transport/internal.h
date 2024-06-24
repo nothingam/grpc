@@ -559,6 +559,11 @@ struct grpc_chttp2_stream {
                      const void* server_data, grpc_core::Arena* arena);
   ~grpc_chttp2_stream();
 
+  inline bool ShouldRecordAnnotations() const {
+    return grpc_core::IsTraceRecordCallopsEnabled() && call_tracer != nullptr &&
+           call_tracer->IsSampled();
+  }
+
   const grpc_core::RefCountedPtr<grpc_chttp2_transport> t;
   grpc_stream_refcount* refcount;
   grpc_core::Arena* const arena;
@@ -654,7 +659,7 @@ struct grpc_chttp2_stream {
   int64_t write_counter = 0;
 
   /// Only set when enabled.
-  grpc_core::CallTracerAnnotationInterface* call_tracer = nullptr;
+  grpc_core::CallTracerInterface* call_tracer = nullptr;
 
   /// Only set when enabled.
   std::shared_ptr<grpc_core::TcpTracerInterface> tcp_tracer;

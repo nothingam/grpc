@@ -40,10 +40,10 @@
 #include "src/core/lib/transport/metadata_batch.h"
 
 grpc_slice grpc_chttp2_rst_stream_create(uint32_t id, uint32_t code,
-                                         grpc_transport_one_way_stats* stats) {
+                                         size_t* created_frame_size) {
   static const size_t frame_size = 13;
   grpc_slice slice = GRPC_SLICE_MALLOC(frame_size);
-  if (stats != nullptr) stats->framing_bytes += frame_size;
+  if (created_frame_size != nullptr) *created_frame_size = frame_size;
   uint8_t* p = GRPC_SLICE_START_PTR(slice);
 
   // Frame size.
@@ -68,12 +68,19 @@ grpc_slice grpc_chttp2_rst_stream_create(uint32_t id, uint32_t code,
   return slice;
 }
 
-void grpc_chttp2_add_rst_stream_to_next_write(
-    grpc_chttp2_transport* t, uint32_t id, uint32_t code,
-    grpc_transport_one_way_stats* stats) {
+void grpc_chttp2_add_rst_stream_to_next_write(grpc_chttp2_transport* t,
+                                              grpc_chttp2_stream* s,
+                                              uint32_t id, uint32_t code) {
   t->num_pending_induced_frames++;
+  size_t frame_size = 0;
   grpc_slice_buffer_add(&t->qbuf,
-                        grpc_chttp2_rst_stream_create(id, code, stats));
+                        grpc_chttp2_rst_stream_create(id, code, &frame_size));
+  if (s != nullptr) {
+    s->stats.outgoing.framing_bytes += frame_size;
+    if (s->call_tracer != nullptr) {
+      s->call_tracer->RecordOutgoingBytes({frame_size, 0, 0});
+    }
+  }
 }
 
 grpc_error_handle grpc_chttp2_rst_stream_parser_begin_frame(
@@ -102,7 +109,11 @@ grpc_error_handle grpc_chttp2_rst_stream_parser_parse(void* parser,
     cur++;
     p->byte++;
   }
-  s->stats.incoming.framing_bytes += static_cast<uint64_t>(end - cur);
+  uint64_t framing_bytes = static_cast<uint64_t>(end - cur);
+  s->stats.incoming.framing_bytes += framing_bytes;
+  if (s->call_tracer != nullptr) {
+    s->call_tracer->RecordIncomingBytes({framing_bytes, 0, 0});
+  }
 
   if (p->byte == 4) {
     CHECK(is_last);

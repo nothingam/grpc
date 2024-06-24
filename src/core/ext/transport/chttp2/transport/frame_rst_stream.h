@@ -33,14 +33,14 @@ struct grpc_chttp2_rst_stream_parser {
   uint8_t reason_bytes[4];
 };
 grpc_slice grpc_chttp2_rst_stream_create(uint32_t stream_id, uint32_t code,
-                                         grpc_transport_one_way_stats* stats);
+                                         size_t* created_frame_size);
 
 // Adds RST_STREAM frame to t->qbuf (buffer for the next write). Should be
 // called when we want to add RST_STREAM and we are not in
 // write_action_begin_locked.
-void grpc_chttp2_add_rst_stream_to_next_write(
-    grpc_chttp2_transport* t, uint32_t id, uint32_t code,
-    grpc_transport_one_way_stats* stats);
+void grpc_chttp2_add_rst_stream_to_next_write(grpc_chttp2_transport* t,
+                                              grpc_chttp2_stream* s,
+                                              uint32_t id, uint32_t code);
 
 grpc_error_handle grpc_chttp2_rst_stream_parser_begin_frame(
     grpc_chttp2_rst_stream_parser* parser, uint32_t length, uint8_t flags);

@@ -225,19 +225,6 @@ namespace {
 
 using TaskHandle = ::grpc_event_engine::experimental::EventEngine::TaskHandle;
 
-grpc_core::CallTracerAnnotationInterface* CallTracerIfSampled(
-    grpc_chttp2_stream* s) {
-  if (!grpc_core::IsTraceRecordCallopsEnabled()) {
-    return nullptr;
-  }
-  auto* call_tracer =
-      s->arena->GetContext<grpc_core::CallTracerAnnotationInterface>();
-  if (call_tracer == nullptr || !call_tracer->IsSampled()) {
-    return nullptr;
-  }
-  return call_tracer;
-}
-
 std::shared_ptr<grpc_core::TcpTracerInterface> TcpTracerIfSampled(
     grpc_chttp2_stream* s) {
   if (!grpc_core::IsTraceRecordCallopsEnabled()) {
@@ -1355,7 +1342,7 @@ static void perform_stream_op_locked(void* stream_op,
   grpc_chttp2_transport* t = s->t.get();
 
   s->traced = op->is_traced;
-  s->call_tracer = CallTracerIfSampled(s);
+  s->call_tracer = s->arena->GetContext<grpc_core::CallTracerInterface>();
   s->tcp_tracer = TcpTracerIfSampled(s);
   if (GRPC_TRACE_FLAG_ENABLED(http)) {
     gpr_log(GPR_INFO,
@@ -1387,7 +1374,7 @@ static void perform_stream_op_locked(void* stream_op,
   }
 
   if (op->send_initial_metadata) {
-    if (s->call_tracer != nullptr) {
+    if (s->ShouldRecordAnnotations()) {
       s->call_tracer->RecordAnnotation(
           grpc_core::HttpAnnotation(grpc_core::HttpAnnotation::Type::kStart,
                                     gpr_now(GPR_CLOCK_REALTIME))
@@ -1480,6 +1467,11 @@ static void perform_stream_op_locked(void* stream_op,
         s->stats.outgoing.framing_bytes += GRPC_HEADER_SIZE_IN_BYTES;
         s->stats.outgoing.data_bytes +=
             op_payload->send_message.send_message->Length();
+        if (s->call_tracer != nullptr) {
+          s->call_tracer->RecordOutgoingBytes(
+              {GRPC_HEADER_SIZE_IN_BYTES,
+               op_payload->send_message.send_message->Length(), 0});
+        }
       }
       s->next_message_end_offset =
           s->flow_controlled_bytes_written +
@@ -2205,7 +2197,7 @@ void grpc_chttp2_cancel_stream(grpc_chttp2_transport* t, grpc_chttp2_stream* s,
            remove_stream_handle = grpc_chttp2_mark_stream_closed(
                t, s, 1, 1, due_to_error)](grpc_chttp2_transport* t) {
             grpc_chttp2_add_rst_stream_to_next_write(
-                t, id, static_cast<uint32_t>(http_error), nullptr);
+                t, nullptr, id, static_cast<uint32_t>(http_error));
             grpc_chttp2_initiate_write(t,
                                        GRPC_CHTTP2_INITIATE_WRITE_RST_STREAM);
           });
@@ -2533,8 +2525,8 @@ static void close_from_api(grpc_chttp2_transport* t, grpc_chttp2_stream* s,
         grpc_slice_buffer_add(&t->qbuf,
                               grpc_slice_from_cpp_string(std::move(message)));
         grpc_chttp2_reset_ping_clock(t);
-        grpc_chttp2_add_rst_stream_to_next_write(t, id, GRPC_HTTP2_NO_ERROR,
-                                                 nullptr);
+        grpc_chttp2_add_rst_stream_to_next_write(t, nullptr, id,
+                                                 GRPC_HTTP2_NO_ERROR);
 
         grpc_chttp2_initiate_write(t,
                                    GRPC_CHTTP2_INITIATE_WRITE_CLOSE_FROM_API);

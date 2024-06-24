@@ -49,8 +49,7 @@ grpc_error_handle grpc_chttp2_data_parser_parse(void* parser,
 
 void grpc_chttp2_encode_data(uint32_t id, grpc_slice_buffer* inbuf,
                              uint32_t write_bytes, int is_eof,
-                             grpc_transport_one_way_stats* stats,
-                             grpc_slice_buffer* outbuf);
+                             grpc_chttp2_stream* s, grpc_slice_buffer* outbuf);
 
 grpc_core::Poll<grpc_error_handle> grpc_deframe_unprocessed_incoming_frames(
     grpc_chttp2_stream* s, int64_t* min_progress_size,

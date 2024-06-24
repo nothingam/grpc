@@ -84,7 +84,11 @@ grpc_error_handle grpc_chttp2_window_update_parser_parse(
   }
 
   if (s != nullptr) {
-    s->stats.incoming.framing_bytes += static_cast<uint32_t>(end - cur);
+    uint64_t framing_bytes = static_cast<uint32_t>(end - cur);
+    s->stats.incoming.framing_bytes += framing_bytes;
+    if (s->call_tracer != nullptr) {
+      s->call_tracer->RecordIncomingBytes({framing_bytes, 0, 0});
+    }
   }
 
   if (p->byte == 4) {
