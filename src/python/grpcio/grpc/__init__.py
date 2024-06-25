@@ -1719,6 +1719,11 @@ def ssl_channel_credentials(
         )
     )
 
+def tls_channel_credentials(
+        root_certificates=None, private_key=None, certificate_chain=None, key_log_file_path=None
+):
+    return ChannelCredentials(_cygrpc.TLSChannelCredentials(root_certificates, private_key, certificate_chain, key_log_file_path))
+
 
 def xds_channel_credentials(fallback_credentials=None):
     """Creates a ChannelCredentials for use with xDS. This is an EXPERIMENTAL
@@ -1858,6 +1863,15 @@ def ssl_server_credentials(
             )
         )
 
+def tls_server_credentials(
+    pem_identity_key, pem_identity_cert_chain,
+    key_log_file_path=None,
+    root_certificates=None
+):
+    return ServerCredentials(
+        _cygrpc.server_credentials_tls(root_certificates,
+                                       pem_identity_key, pem_identity_cert_chain, key_log_file_path)
+    )
 
 def xds_server_credentials(fallback_credentials):
     """Creates a ServerCredentials for use with xDS. This is an EXPERIMENTAL
