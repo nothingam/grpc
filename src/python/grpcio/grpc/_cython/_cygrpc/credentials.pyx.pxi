@@ -169,6 +169,45 @@ cdef class SSLChannelCredentials(ChannelCredentials):
         return grpc_ssl_credentials_create(
             c_pem_root_certificates, &c_pem_key_certificate_pair, NULL, NULL)
 
+cdef class TLSChannelCredentials(ChannelCredentials):
+  def __cinit__(self, pem_root_certificates, private_key, certificate_chain, key_log_file_path):
+    if pem_root_certificates is not None and not isinstance(pem_root_certificates, bytes):
+      raise TypeError('expected certificate to be bytes, got %s' % (type(pem_root_certificates)))
+    self._pem_root_certificates = pem_root_certificates
+    self._private_key = private_key
+    self._certificate_chain = certificate_chain
+    self._key_log_file_path = key_log_file_path
+
+  cdef grpc_channel_credentials *c(self) except *:
+    cdef const char *c_pem_root_certificates
+    cdef grpc_tls_identity_pairs* c_pem_identity_pair = NULL
+    cdef grpc_tls_credentials_options* c_options = NULL
+
+    c_options = grpc_tls_credentials_options_create()
+
+    if self._certificate_chain and self._private_key:
+      c_pem_identity_pair = grpc_tls_identity_pairs_create()
+      grpc_tls_identity_pairs_add_pair(c_pem_identity_pair, self._private_key, self._certificate_chain)
+
+    if self._pem_root_certificates is None:
+      c_pem_root_certificates = NULL
+    else:
+      c_pem_root_certificates = self._pem_root_certificates
+
+    cdef grpc_tls_certificate_verifier *c_certificate_verifier = NULL
+    c_certificate_verifier = grpc_tls_certificate_verifier_host_name_create()
+    grpc_tls_credentials_options_set_certificate_verifier(c_options, c_certificate_verifier)
+
+    cdef grpc_tls_certificate_provider *c_certificate_provider = NULL
+    c_certificate_provider = grpc_tls_certificate_provider_static_data_create(c_pem_root_certificates, c_pem_identity_pair)
+
+    grpc_tls_credentials_options_set_certificate_provider(c_options, c_certificate_provider)
+
+    if self._key_log_file_path is not None:
+      grpc_tls_credentials_options_set_tls_session_key_log_file_path(c_options, str_to_bytes(self._key_log_file_path))
+
+    return grpc_tls_credentials_create(c_options)
+
 
 cdef class CompositeChannelCredentials(ChannelCredentials):
 
@@ -275,9 +314,56 @@ def server_credentials_ssl(pem_root_certs, pem_key_cert_pairs,
     if force_client_auth else
     GRPC_SSL_DONT_REQUEST_CLIENT_CERTIFICATE,
     c_cert_config)
+
   # C-core assumes ownership of c_options
   credentials.c_credentials = grpc_ssl_server_credentials_create_with_options(c_options)
   return credentials
+
+def server_credentials_tls(pem_root_certs, pem_identitiy_key, pem_identitiy_certs, key_log_file_path):
+  pem_root_certs = str_to_bytes(pem_root_certs)
+
+  cdef ServerCredentials credentials = ServerCredentials()
+
+  pem_key_cert_pairs = [SslPemKeyCertPair(pem_identitiy_key, pem_identitiy_certs)]
+
+  credentials.references.append(pem_root_certs)
+  credentials.references.append(pem_key_cert_pairs)
+
+  credentials.c_ssl_pem_key_cert_pairs_count = len(pem_key_cert_pairs)
+  credentials.c_ssl_pem_key_cert_pairs = _create_c_ssl_pem_key_cert_pairs(pem_key_cert_pairs)
+
+  cdef grpc_tls_identity_pairs *c_identity_pairs = NULL
+  c_identity_pairs = grpc_tls_identity_pairs_create()
+
+  cdef const char* c_pem_identity_key = _get_c_pem_root_certs(pem_identitiy_key)
+  cdef const char* c_pem_identity_cert = _get_c_pem_root_certs(pem_identitiy_certs)
+
+  grpc_tls_identity_pairs_add_pair(c_identity_pairs, c_pem_identity_key, c_pem_identity_cert)
+
+  cdef const char * c_pem_root_certs = _get_c_pem_root_certs(pem_root_certs)
+
+  cdef grpc_tls_certificate_provider *c_certificate_provider = NULL
+  c_certificate_provider = grpc_tls_certificate_provider_static_data_create(c_pem_root_certs, c_identity_pairs)
+
+  cdef grpc_tls_certificate_verifier *c_certificate_verifier = NULL
+  c_certificate_verifier = grpc_tls_certificate_verifier_host_name_create()
+
+  cdef grpc_tls_credentials_options *c_options = NULL
+  c_options = grpc_tls_credentials_options_create()
+
+  grpc_tls_credentials_options_set_certificate_provider(c_options, c_certificate_provider)
+
+  grpc_tls_credentials_options_set_cert_request_type(c_options, GRPC_SSL_DONT_REQUEST_CLIENT_CERTIFICATE)
+
+  grpc_tls_credentials_options_watch_identity_key_cert_pairs(c_options)
+
+  credentials.c_credentials = grpc_tls_server_credentials_create(c_options)
+
+  if key_log_file_path is not None:
+    grpc_tls_credentials_options_set_tls_session_key_log_file_path(c_options, str_to_bytes(key_log_file_path))
+
+  return credentials
+
 
 def server_certificate_config_ssl(pem_root_certs, pem_key_cert_pairs):
   pem_root_certs = str_to_bytes(pem_root_certs)

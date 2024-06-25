@@ -67,6 +67,15 @@ cdef class SSLChannelCredentials(ChannelCredentials):
 
   cdef grpc_channel_credentials *c(self) except *
 
+cdef class TLSChannelCredentials(ChannelCredentials):
+
+  cdef readonly object _pem_root_certificates
+  cdef readonly object _private_key
+  cdef readonly object _certificate_chain
+  cdef readonly object _key_log_file_path
+
+  cdef grpc_channel_credentials *c(self) except *
+
 
 cdef class CompositeChannelCredentials(ChannelCredentials):
 

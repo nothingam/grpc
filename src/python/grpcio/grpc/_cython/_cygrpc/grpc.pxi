@@ -554,6 +554,58 @@ cdef extern from "grpc/grpc_security_constants.h":
 
 cdef extern from "grpc/credentials.h":
 
+  ctypedef struct grpc_tls_identity_pairs:
+    # We don't care about the internals
+    pass
+
+  ctypedef struct grpc_tls_certificate_provider:
+    pass
+
+  ctypedef struct grpc_tls_certificate_verifier:
+    pass
+
+  ctypedef struct grpc_tls_credentials_options:
+    # We don't care about the internals
+    pass
+
+  grpc_tls_identity_pairs *grpc_tls_identity_pairs_create()
+
+  void grpc_tls_identity_pairs_add_pair(grpc_tls_identity_pairs* pairs,
+    const char* private_key,
+    const char* cert_chain)
+
+  grpc_tls_certificate_provider* grpc_tls_certificate_provider_static_data_create(
+    const char* root_certificate,
+    grpc_tls_identity_pairs* pem_key_cert_pairs)
+
+  grpc_tls_certificate_verifier* grpc_tls_certificate_verifier_host_name_create()
+
+  grpc_tls_credentials_options* grpc_tls_credentials_options_create()
+
+  grpc_channel_credentials* grpc_tls_credentials_create(
+    grpc_tls_credentials_options* options)
+
+  grpc_server_credentials* grpc_tls_server_credentials_create(
+    grpc_tls_credentials_options* options)
+
+  void grpc_tls_credentials_options_set_certificate_provider(
+    grpc_tls_credentials_options* options,
+    grpc_tls_certificate_provider* provider)
+
+  void grpc_tls_credentials_options_watch_identity_key_cert_pairs(
+    grpc_tls_credentials_options* options)
+
+  void grpc_tls_credentials_options_set_cert_request_type(
+    grpc_tls_credentials_options* options,
+    grpc_ssl_client_certificate_request_type type)
+
+  void grpc_tls_credentials_options_set_certificate_verifier(
+    grpc_tls_credentials_options* options,
+    grpc_tls_certificate_verifier* verifier)
+
+  void grpc_tls_credentials_options_set_tls_session_key_log_file_path(
+    grpc_tls_credentials_options* options, const char* path)
+
   ctypedef struct grpc_ssl_server_certificate_config:
     # We don't care about the internals
     pass
